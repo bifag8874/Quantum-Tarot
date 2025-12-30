@@ -50,31 +50,46 @@ LOTTIE_URLS = {
 }
 
 # =====================
-# CSS: 午夜藍 + 金色 主題
+# CSS: 午夜藍 + 金色 主題 (含手機版修復)
 # =====================
 def inject_custom_css():
     st.markdown("""
     <style>
-    /* 全局字體 */
-    html, body, [class*="css"] { 
-        font-family: 'Helvetica Neue', 'Microsoft JhengHei', sans-serif; 
+    /* 強制亮色模式樣式，避免手機 Dark Mode 造成字體看不見 */
+    [data-testid="stAppViewContainer"] {
+        background-color: #FFFFFF !important;
+        color: #262730 !important;
     }
-
+    
+    [data-testid="stSidebar"] {
+        background-color: #F8F9FA !important;
+        border-right: 1px solid #DEE2E6;
+    }
+    
     /* 標題與重點色 */
-    h1, h2, h3 { 
+    h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { 
         color: #1a237e !important; 
-        font-weight: 700 !important; 
+        font-family: 'Helvetica Neue', 'Microsoft JhengHei', sans-serif;
+        font-weight: 700 !important;
+    }
+    
+    /* 普通文字顏色 */
+    p, span, div, li, .stMarkdown, .stText {
+        color: #262730;
     }
 
     /* Hero Section 容器 */
     .hero-container {
         background: linear-gradient(135deg, #1a237e 0%, #0d47a1 100%);
-        color: white;
+        color: white !important;
         padding: 30px;
         border-radius: 15px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         margin-bottom: 25px;
         text-align: center;
+    }
+    .hero-container * {
+        color: white !important;
     }
     .hero-title {
         color: #ffd700 !important;
@@ -89,9 +104,8 @@ def inject_custom_css():
     .hero-metric-value {
         font-size: 1.5rem;
         font-weight: bold;
-        color: white;
     }
-
+    
     /* 卡片與容器 */
     .report-card { 
         background-color: white; 
@@ -114,7 +128,7 @@ def inject_custom_css():
         transform: translateX(5px);
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-
+    
     /* 塔羅牌容器 */
     .tarot-img-container img {
         border-radius: 10px;
@@ -123,6 +137,17 @@ def inject_custom_css():
     }
     .tarot-img-container img:hover {
         transform: translateY(-5px);
+    }
+    
+    /* 針對手機深色模式的修復 (Media Query) */
+    @media (prefers-color-scheme: dark) {
+        body { background-color: #FFFFFF !important; }
+        .stApp { background-color: #FFFFFF !important; }
+        p, span, div, li { color: #262730 !important; }
+        /* 排除 Hero Section，保持深藍背景 */
+        .hero-container {
+            background: linear-gradient(135deg, #1a237e 0%, #0d47a1 100%) !important;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -169,7 +194,7 @@ def get_stock_and_news(symbol: str):
         stock = yf.Ticker(symbol)
         hist = stock.history(period="1mo")
         if hist.empty: return None, "❌ 查無此代號", []
-
+        
         current = hist['Close'].iloc[-1]
         prev = hist['Close'].iloc[-2]
         change = (current - prev) / prev * 100
@@ -181,7 +206,7 @@ def get_stock_and_news(symbol: str):
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs)).iloc[-1]
-
+        
         metrics = {
             "price": f"{current:.2f}",
             "change": f"{change:+.2f}%",
@@ -189,7 +214,7 @@ def get_stock_and_news(symbol: str):
             "rsi": f"{rsi:.1f}",
             "raw_data_str": f"現價{current:.2f}, 漲跌{change:.2f}%, 量能{vol_ratio:.1f}倍, RSI{rsi:.1f}"
         }
-
+        
         try:
             news_data = stock.news
             if news_data:
@@ -197,7 +222,7 @@ def get_stock_and_news(symbol: str):
                     news_list.append(f"- {n.get('title', '無標題')} ({n.get('publisher', '未知來源')})")
         except:
             news_list.append("⚠️ 暫無相關新聞或抓取失敗")
-
+            
     except Exception as e:
         return None, str(e), []
     return metrics, None, news_list
@@ -216,7 +241,7 @@ def _call_gemini(prompt):
 # =====================
 def plot_gauge(score, mode="stock"):
     is_stock = mode == "stock"
-
+    
     # 顏色配置
     if is_stock:
         steps = [
@@ -266,7 +291,7 @@ inject_custom_css()
 c1, c2 = st.columns([0.85, 0.15])
 with c1:
     st.title("Quantum Tarot | 量化塔羅")
-    st.caption("融合華爾街量化數據與榮格心理學的決策輔助系統 V11")
+    st.caption("融合華爾街量化數據與榮格心理學的決策輔助系統 V12")
 with c2:
     if load_lottieurl(LOTTIE_URLS["finance"]): 
         st_lottie(load_lottieurl(LOTTIE_URLS["finance"]), height=60, key="head_anim")
@@ -277,20 +302,20 @@ st.divider()
 with st.sidebar:
     st.header("⚙️ 控制面板")
     mode = st.radio("模式選擇", ["股票分析", "一般占卜 (開放式)"], captions=["結合即時數據", "心靈指引"])
-
+    
     st.markdown("---")
-
+    
     if mode == "股票分析":
         symbol = st.text_input("股票代號", placeholder="例如：2330, NVDA").upper()
         style = st.selectbox("操作風格", ["短線當沖 (Day Trading)", "波段操作 (Swing)", "長線價值 (Value)"])
     else:
         question = st.text_area("請輸入您的問題", height=120, placeholder="例如：最近工作運勢如何？\n這個專案該不該接？")
-
+        
     st.markdown("---")
     run_btn = st.button("🚀 開始分析", type="primary", use_container_width=True)
-
+    
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.caption("v11.0.0 | Powered by Gemini 2.0")
+    st.caption("v12.0.0 | Powered by Gemini 2.0")
 
 cards = load_cards(DEFAULT_CARD_DIR)
 if not cards: st.stop()
@@ -300,20 +325,20 @@ if "state" not in st.session_state:
 
 # Execution
 if run_btn:
-
+    
     # === 股票模式 ===
     if mode == "股票分析":
         if not symbol: st.toast("⚠️ 請輸入代號"); st.stop()
-
+        
         with st.status("📡 正在連接交易所與宇宙場域...", expanded=True) as status:
             st.write("正在抓取即時報價...")
             data, err, news = get_stock_and_news(symbol)
             if err: status.update(label="❌ 錯誤", state="error"); st.error(err); st.stop()
-
+            
             st.write("正在抽取塔羅牌...")
             drawn = random.sample(cards, k=3)
             time.sleep(0.5)
-
+            
             st.write("AI 正在進行深度解讀...")
             news_str = "\n".join(news)
             prompt = f"""
@@ -323,68 +348,79 @@ if run_btn:
             【新聞】：{news_str}
             【塔羅】：{[c.name for c in drawn]}
             【風格】：{style}
-
+            
             請依序輸出：
             1. 【信心分數】：(請只輸出一個數字，0-100)
             2. 詳細分析報告 (Markdown format)
             """
             full_response = _call_gemini(prompt)
-
+            
             score_match = re.search(r"(\d{1,3})", full_response[:50]) 
             score = int(score_match.group(1)) if score_match else 50
             analysis = re.sub(r"【信心分數】.*?\n", "", full_response)
-
+            
             status.update(label="✅ 分析完成！", state="complete", expanded=False)
-
+            
         st.session_state.state = {"data": data, "cards": drawn, "analysis": analysis, "news": news, "score": score, "mode": "stock"}
 
     # === 一般占卜模式 ===
     else:
         if not question: st.toast("⚠️ 請輸入問題"); st.stop()
-
+        
         with st.status("🔮 正在連結潛意識場域...", expanded=True) as status:
             st.write("正在洗牌...")
             time.sleep(1)
             drawn = random.sample(cards, k=3)
-
+            
             st.write("AI 正在感應能量...")
+            # V12 優化：更精確的 Prompt
             prompt = f"""
-            你是一位塔羅導師。請用【繁體中文】解讀。
-            【問題】：{question}
-            【牌面】：{[c.name for c in drawn]}
-
+            你是一位精通榮格心理學與神秘學的資深塔羅導師。
+            使用者問了一個關於「{question}」的問題。
+            
+            你抽到了以下三張牌，請將它們對應到以下位置：
+            1. {drawn[0].name} (代表：現狀/核心問題)
+            2. {drawn[1].name} (代表：建議/行動方向)
+            3. {drawn[2].name} (代表：未來/潛在結果)
+            
+            請務必針對「{question}」這個問題進行回答，不要給出空泛的解釋。
+            用溫暖、有洞見且具體的語氣。
+            
             請依序輸出：
-            1. 【能量分數】：(請只輸出一個數字，0-100)
-            2. 詳細解讀報告 (Markdown format)
+            1. 【能量分數】：(請根據牌面好壞給出 0-100 的數字)
+            2. 詳細解讀報告 (Markdown format)，包含：
+               - 🎴 牌面解析 (請連結牌義與使用者的問題)
+               - 🌌 核心訊息 (直指問題核心)
+               - 💡 具體建議 (下一步該怎麼做)
             """
             full_response = _call_gemini(prompt)
-
+            
             score_match = re.search(r"(\d{1,3})", full_response[:50]) 
             score = int(score_match.group(1)) if score_match else 50
             analysis = re.sub(r"【能量分數】.*?\n", "", full_response)
-
+            
             status.update(label="✨ 感應完成！", state="complete", expanded=False)
-
+            
         st.session_state.state = {"data": None, "cards": drawn, "analysis": analysis, "news": [], "score": score, "mode": "general"}
 
 # Display Logic
 res = st.session_state.state
 
 if res["cards"]:
-
+    
     # === Hero Section (視覺焦點) ===
     is_stock = res.get("mode") == "stock"
     score_title = "AI 多空信心" if is_stock else "能量流動指數"
-
+    
     # 使用 container 包裝 Hero Section
     with st.container():
         c_gauge, c_metrics = st.columns([0.3, 0.7])
-
+        
         with c_gauge:
             fig = plot_gauge(res["score"], res.get("mode"))
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             st.markdown(f"<div style='text-align:center; margin-top:-20px; font-weight:bold; color:#555;'>{score_title}</div>", unsafe_allow_html=True)
-
+            
         with c_metrics:
             if is_stock and res["data"]:
                 st.markdown(f"""
@@ -402,7 +438,7 @@ if res["cards"]:
                  st.markdown(f"""
                 <div class="hero-container" style="background: linear-gradient(135deg, #4a148c 0%, #7b1fa2 100%);">
                     <div class="hero-title">🔮 潛意識能量場</div>
-                    <div style="margin-top:10px; color:#e1bee7; font-size:1.1rem;">
+                    <div style="margin-top:10px; font-size:1.1rem; opacity:0.9;">
                         "{question[:30]}..."
                     </div>
                     <div style="margin-top:15px; font-size:0.9rem; opacity:0.8;">
@@ -414,7 +450,7 @@ if res["cards"]:
     # === Tabs 分頁設計 (優化版面) ===
     st.write("")
     tab1, tab2, tab3 = st.tabs(["🎴 牌面與分析", "📰 市場資訊 / 詳情", "⚙️ 原始數據"])
-
+    
     with tab1:
         # 牌面展示
         st.subheader("抽牌結果")
@@ -425,13 +461,13 @@ if res["cards"]:
                 st.image(res["cards"][i].path, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.caption(f"**{res['cards'][i].name}**")
-
+        
         # 深度報告
         st.subheader("深度解讀")
         st.markdown('<div class="report-card">', unsafe_allow_html=True)
         st.markdown(res["analysis"])
         st.markdown('</div>', unsafe_allow_html=True)
-
+        
     with tab2:
         if is_stock:
             st.subheader("相關新聞快訊")
@@ -445,8 +481,7 @@ if res["cards"]:
             st.markdown("### 建議行動")
             st.write("1. 靜心冥想 5 分鐘")
             st.write("2. 記錄下此刻的直覺")
-
+            
     with tab3:
         st.subheader("Debug & Raw Data")
         st.json(res)
-
