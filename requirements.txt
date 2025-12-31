@@ -2,7 +2,5 @@ streamlit
 google-generativeai
 yfinance
 pandas
-streamlit-lottie
-requests
-plotly==5.18.0
-kaleido
+streamlit-gsheets-connection
+st-gsheets-connection
