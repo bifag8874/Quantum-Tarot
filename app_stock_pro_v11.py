@@ -1,487 +1,287 @@
 import streamlit as st
-import random
-import os
-import re
-import time
-import requests
-import pandas as pd
+import google.generativeai as genai
 import yfinance as yf
-from pathlib import Path
-from dataclasses import dataclass
-import plotly.graph_objects as go
+import pandas as pd
+import random
+from datetime import datetime
+import time
+from streamlit_gsheets import GSheetsConnection
 
-# =====================
-# Imports & Config
-# =====================
+# ---------------------------------------------------------
+# 1. 初始設定 (Page Config)
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="量子塔羅 V14 - 全知全能版",
+    page_icon="🔮",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ---------------------------------------------------------
+# 2. 秘密金鑰讀取 & 資料庫連線
+# ---------------------------------------------------------
 try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
+    # 設定 Gemini API
+    GENAI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=GENAI_API_KEY)
 
-try:
-    from streamlit_lottie import st_lottie
-except ImportError:
-    st_lottie = None
+    # 建立 Google Sheets 連線
+    # 這裡的 "gsheets" 對應 secrets.toml 裡的 [connections.gsheets]
+    conn = st.connection("gsheets", type=GSheetsConnection)
 
-APP_TITLE = "Quantum Tarot | 量化塔羅"
-DEFAULT_CARD_DIR = "Cards-jpg"
-SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-MODEL_NAME = "models/gemini-2.5-flash"
+except Exception as e:
+    st.error(f"⚠️ 金鑰或連線設定錯誤: {e}")
+    st.stop()
 
-GEMINI_API_KEY = None
-if hasattr(st, "secrets"):
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
-GEMINI_API_KEY = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+# ---------------------------------------------------------
+# 3. 核心函數：歷史紀錄管理 (讀取/寫入)
+# ---------------------------------------------------------
+DB_TTL = 0  # 設定為 0 代表每次都讀最新資料，不快取
 
-# =====================
-# Lottie
-# =====================
-def load_lottieurl(url: str):
+def get_history(user_id):
+    """從 Google Sheets 讀取該使用者的歷史紀錄"""
     try:
-        r = requests.get(url, timeout=3)
-        return r.json() if r.status_code == 200 else None
-    except:
-        return None
+        df = conn.read(ttl=DB_TTL)
+        # 如果是空的試算表，或是沒有 user_id 欄位，回傳空 DataFrame
+        if df.empty or "user_id" not in df.columns:
+            return pd.DataFrame()
 
-LOTTIE_URLS = {
-    "finance": "https://lottie.host/807e3661-002d-44a1-b883-93d39695fa9f/9sQW3qF1y3.json",
-    "ai": "https://lottie.host/4e90768b-980e-4424-967a-0639e4466b02/tC6U7tXy8l.json",
-    "tarot": "https://lottie.host/64f0f62b-6581-42cb-b40b-7419e61c3371/X100fT4a9H.json"
-}
+        # 篩選該使用者的資料，並按時間倒序排列
+        user_history = df[df["user_id"] == user_id].sort_values(by="timestamp", ascending=False)
+        return user_history
+    except Exception as e:
+        st.warning(f"無法讀取歷史紀錄: {e}")
+        return pd.DataFrame()
 
-# =====================
-# CSS: 午夜藍 + 金色 主題 (含手機版修復)
-# =====================
-def inject_custom_css():
-    st.markdown("""
-    <style>
-    /* 強制亮色模式樣式，避免手機 Dark Mode 造成字體看不見 */
-    [data-testid="stAppViewContainer"] {
-        background-color: #FFFFFF !important;
-        color: #262730 !important;
-    }
-    
-    [data-testid="stSidebar"] {
-        background-color: #F8F9FA !important;
-        border-right: 1px solid #DEE2E6;
-    }
-    
-    /* 標題與重點色 */
-    h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { 
-        color: #1a237e !important; 
-        font-family: 'Helvetica Neue', 'Microsoft JhengHei', sans-serif;
-        font-weight: 700 !important;
-    }
-    
-    /* 普通文字顏色 */
-    p, span, div, li, .stMarkdown, .stText {
-        color: #262730;
-    }
+def save_to_history(user_id, q_type, query, cards, summary):
+    """將本次問卜結果寫入 Google Sheets"""
+    try:
+        # 1. 讀取現有資料
+        df = conn.read(ttl=DB_TTL)
 
-    /* Hero Section 容器 */
-    .hero-container {
-        background: linear-gradient(135deg, #1a237e 0%, #0d47a1 100%);
-        color: white !important;
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        margin-bottom: 25px;
-        text-align: center;
-    }
-    .hero-container * {
-        color: white !important;
-    }
-    .hero-title {
-        color: #ffd700 !important;
-        font-size: 1.8rem;
-        margin-bottom: 5px;
-    }
-    .hero-metric-label {
-        font-size: 0.9rem;
-        opacity: 0.8;
-        color: #e3f2fd;
-    }
-    .hero-metric-value {
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-    
-    /* 卡片與容器 */
-    .report-card { 
-        background-color: white; 
-        padding: 25px; 
-        border-radius: 12px; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
-        border-top: 5px solid #1a237e; 
-        margin-top: 10px; 
-    }
-    .news-card { 
-        background-color: #f8f9fa; 
-        padding: 15px; 
-        border-radius: 8px; 
-        margin-bottom: 12px; 
-        font-size: 0.95rem; 
-        border-left: 3px solid #ffd700;
-        transition: all 0.2s ease;
-    }
-    .news-card:hover {
-        transform: translateX(5px);
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
-    /* 塔羅牌容器 */
-    .tarot-img-container img {
-        border-radius: 10px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-        transition: transform 0.3s ease;
-    }
-    .tarot-img-container img:hover {
-        transform: translateY(-5px);
-    }
-    
-    /* 針對手機深色模式的修復 (Media Query) */
-    @media (prefers-color-scheme: dark) {
-        body { background-color: #FFFFFF !important; }
-        .stApp { background-color: #FFFFFF !important; }
-        p, span, div, li { color: #262730 !important; }
-        /* 排除 Hero Section，保持深藍背景 */
-        .hero-container {
-            background: linear-gradient(135deg, #1a237e 0%, #0d47a1 100%) !important;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
+        # 2. 準備新的一筆資料
+        new_row = pd.DataFrame([{
+            "user_id": user_id,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "type": q_type,
+            "query": query,
+            "cards": cards,
+            "ai_summary": summary
+        }])
 
-# =====================
-# Logic
-# =====================
-MAJOR_ZH = {"thefool": "愚者", "themagician": "魔術師", "thehighpriestess": "女祭司", "theempress": "皇后", "theemperor": "皇帝", "thehierophant": "教皇", "thelovers": "戀人", "thechariot": "戰車", "strength": "力量", "thehermit": "隱者", "wheeloffortune": "命運之輪", "justice": "正義", "thehangedman": "倒吊人", "death": "死神", "temperance": "節制", "thedevil": "惡魔", "thetower": "高塔", "thestar": "星星", "themoon": "月亮", "thesun": "太陽", "judgement": "審判", "theworld": "世界"}
-SUIT_ZH = {"cups": "聖杯", "wands": "權杖", "swords": "寶劍", "pentacles": "錢幣"}
-COURT_ZH = {"page": "侍者", "knight": "騎士", "queen": "皇后", "king": "國王"}
-RANK_ZH = {"ace": "A", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "10": "10"}
+        # 3. 合併並寫回
+        if df.empty:
+            updated_df = new_row
+        else:
+            updated_df = pd.concat([df, new_row], ignore_index=True)
 
-@dataclass
-class Card:
-    key: str; name: str; path: str
+        conn.update(data=updated_df)
+        return True
+    except Exception as e:
+        st.error(f"存檔失敗: {e}")
+        return False
 
-def parse_card_filename(stem: str) -> str:
-    s = stem.lower().replace("-", "_").replace(" ", "_")
-    s = re.sub(r"_+", "_", s)
-    m = re.match(r"^(\d{1,2})_(.+)$", s)
-    if m:
-        num = m.group(1)
-        token = re.sub(r"[^a-z0-9]", "", m.group(2))
-        return f"{MAJOR_ZH.get(token, m.group(2).title())}"
-    m = re.match(r"^(cups|wands|swords|pentacles)_?(ace|\d{1,2}|page|knight|queen|king)$", s)
-    if m:
-        suit, rank = m.group(1), m.group(2)
-        return f"{SUIT_ZH.get(suit, suit)} {COURT_ZH.get(rank, RANK_ZH.get(rank, rank))}"
-    return s.title()
-
-@st.cache_data(show_spinner=False)
-def load_cards(card_dir: str):
-    p = Path(card_dir)
-    if not p.exists(): return []
-    files = [f for f in p.rglob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_EXTS]
-    return [Card(key=f.stem.lower(), name=parse_card_filename(f.stem), path=str(f)) for f in sorted(files)]
-
-def get_stock_and_news(symbol: str):
-    if not yf: return None, "❌ 系統維護中", []
-    if symbol.isdigit() and len(symbol) == 4: symbol = f"{symbol}.TW"
-    metrics = {}
-    news_list = []
+# ---------------------------------------------------------
+# 4. 核心函數：AI 模型與工具
+# ---------------------------------------------------------
+def get_stock_data(symbol):
     try:
         stock = yf.Ticker(symbol)
         hist = stock.history(period="1mo")
-        if hist.empty: return None, "❌ 查無此代號", []
-        
-        current = hist['Close'].iloc[-1]
-        prev = hist['Close'].iloc[-2]
-        change = (current - prev) / prev * 100
-        avg_vol = hist['Volume'].mean()
-        today_vol = hist['Volume'].iloc[-1]
-        vol_ratio = today_vol / avg_vol if avg_vol > 0 else 0
-        delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
-        
-        metrics = {
-            "price": f"{current:.2f}",
-            "change": f"{change:+.2f}%",
-            "vol_ratio": f"{vol_ratio:.1f}x",
-            "rsi": f"{rsi:.1f}",
-            "raw_data_str": f"現價{current:.2f}, 漲跌{change:.2f}%, 量能{vol_ratio:.1f}倍, RSI{rsi:.1f}"
-        }
-        
-        try:
-            news_data = stock.news
-            if news_data:
-                for n in news_data[:3]:
-                    news_list.append(f"- {n.get('title', '無標題')} ({n.get('publisher', '未知來源')})")
-        except:
-            news_list.append("⚠️ 暫無相關新聞或抓取失敗")
-            
-    except Exception as e:
-        return None, str(e), []
-    return metrics, None, news_list
+        if hist.empty: return None
 
-def _call_gemini(prompt):
-    if not genai or not GEMINI_API_KEY: return "⚠️ AI 系統忙碌中"
-    genai.configure(api_key=GEMINI_API_KEY)
-    try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        return model.generate_content(prompt).text
+        info = stock.info
+        current_price = info.get('currentPrice', hist['Close'].iloc[-1])
+        change = current_price - hist['Close'].iloc[0]
+        pct_change = (change / hist['Close'].iloc[0]) * 100
+
+        return {
+            "price": f"{current_price:.2f}",
+            "change": f"{pct_change:.2f}%",
+            "trend": "上漲" if change > 0 else "下跌",
+            "volume": f"{hist['Volume'].mean():.0f}"
+        }
     except:
-        return "⚠️ AI 連線逾時，請重試"
+        return None
 
-# =====================
-# Gauge Chart
-# =====================
-def plot_gauge(score, mode="stock"):
-    is_stock = mode == "stock"
-    
-    # 顏色配置
-    if is_stock:
-        steps = [
-            {'range': [0, 30], 'color': '#ef5350'},   # Red
-            {'range': [30, 70], 'color': '#ffca28'},  # Amber
-            {'range': [70, 100], 'color': '#66bb6a'}  # Green
-        ]
-        line_color = "#263238"
-        bar_color = "rgba(0,0,0,0)" # 透明，只顯示 steps
-    else:
-        steps = [
-            {'range': [0, 30], 'color': '#ab47bc'},   # Purple 300
-            {'range': [30, 70], 'color': '#7e57c2'},  # Deep Purple 400
-            {'range': [70, 100], 'color': '#512da8'}  # Deep Purple 700
-        ]
-        line_color = "#311b92"
-        bar_color = "rgba(0,0,0,0)"
+def draw_cards():
+    tarot_deck = [
+        "愚者", "魔術師", "女祭司", "皇后", "皇帝", "教皇", "戀人", "戰車",
+        "力量", "隱者", "命運之輪", "正義", "吊人", "死神", "節制", "惡魔",
+        "塔", "星星", "月亮", "太陽", "審判", "世界",
+        "權杖一", "權杖國王", "聖杯三", "聖杯王后", "寶劍十", "錢幣騎士"
+    ]
+    return random.sample(tarot_deck, 3)
 
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = score,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        number = {'font': {'size': 40, 'color': '#1a237e'}},
-        gauge = {
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "gray"},
-            'bar': {'color': bar_color},
-            'bgcolor': "white",
-            'borderwidth': 0,
-            'steps': steps,
-            'threshold': {
-                'line': {'color': line_color, 'width': 5},
-                'thickness': 0.75,
-                'value': score
-            }
-        }
-    ))
-    fig.update_layout(height=220, margin=dict(l=30, r=30, t=30, b=30), paper_bgcolor='rgba(0,0,0,0)', font={'family': "Microsoft JhengHei"})
-    return fig
-
-# =====================
-# UI
-# =====================
-st.set_page_config(page_title="Quantum Tarot", layout="wide", page_icon="🔮")
-inject_custom_css()
-
-# Header
-c1, c2 = st.columns([0.85, 0.15])
-with c1:
-    st.title("Quantum Tarot | 量化塔羅")
-    st.caption("融合華爾街量化數據與榮格心理學的決策輔助系統 V12")
-with c2:
-    if load_lottieurl(LOTTIE_URLS["finance"]): 
-        st_lottie(load_lottieurl(LOTTIE_URLS["finance"]), height=60, key="head_anim")
-
-st.divider()
-
-# Sidebar
+# ---------------------------------------------------------
+# 5. 使用者登入系統 (Sidebar)
+# ---------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 控制面板")
-    mode = st.radio("模式選擇", ["股票分析", "一般占卜 (開放式)"], captions=["結合即時數據", "心靈指引"])
-    
-    st.markdown("---")
-    
-    if mode == "股票分析":
-        symbol = st.text_input("股票代號", placeholder="例如：2330, NVDA").upper()
-        style = st.selectbox("操作風格", ["短線當沖 (Day Trading)", "波段操作 (Swing)", "長線價值 (Value)"])
+    st.title("👤 使用者登入")
+
+    # 初始化 session state
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
+
+    if st.session_state.user_id:
+        st.success(f"哈囉，{st.session_state.user_id}！")
+        if st.button("登出"):
+            st.session_state.user_id = None
+            st.rerun()
     else:
-        question = st.text_area("請輸入您的問題", height=120, placeholder="例如：最近工作運勢如何？\n這個專案該不該接？")
-        
+        user_input = st.text_input("請輸入暱稱 (作為歷史紀錄ID)", placeholder="例如: jowho")
+        if st.button("登入 / 開始"):
+            if user_input.strip():
+                st.session_state.user_id = user_input.strip()
+                st.rerun()
+            else:
+                st.warning("請輸入暱稱！")
+
     st.markdown("---")
-    run_btn = st.button("🚀 開始分析", type="primary", use_container_width=True)
-    
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.caption("v12.0.0 | Powered by Gemini 2.0")
+    st.markdown("### 📜 歷史紀錄功能")
+    st.info("登入後，您的每次占卜都會自動儲存到雲端資料庫。即便關閉網頁，下次登入依然記得您的問題。")
 
-cards = load_cards(DEFAULT_CARD_DIR)
-if not cards: st.stop()
+# ---------------------------------------------------------
+# 6. 主程式介面
+# ---------------------------------------------------------
+if not st.session_state.user_id:
+    st.info("👈 請先在左側欄輸入暱稱登入，以啟用「雲端記憶」功能。")
+    st.stop()
 
-if "state" not in st.session_state:
-    st.session_state.state = {"data": None, "cards": [], "analysis": None, "news": [], "score": None}
+# 讀取該使用者的歷史紀錄 (作為 AI 的背景知識)
+history_df = get_history(st.session_state.user_id)
+recent_history_text = ""
 
-# Execution
-if run_btn:
-    
-    # === 股票模式 ===
-    if mode == "股票分析":
-        if not symbol: st.toast("⚠️ 請輸入代號"); st.stop()
-        
-        with st.status("📡 正在連接交易所與宇宙場域...", expanded=True) as status:
-            st.write("正在抓取即時報價...")
-            data, err, news = get_stock_and_news(symbol)
-            if err: status.update(label="❌ 錯誤", state="error"); st.error(err); st.stop()
-            
-            st.write("正在抽取塔羅牌...")
-            drawn = random.sample(cards, k=3)
-            time.sleep(0.5)
-            
-            st.write("AI 正在進行深度解讀...")
-            news_str = "\n".join(news)
-            prompt = f"""
-            你是一位華爾街資深分析師。請用【繁體中文】分析。
-            【標的】：{symbol}
-            【數據】：{data['raw_data_str']}
-            【新聞】：{news_str}
-            【塔羅】：{[c.name for c in drawn]}
-            【風格】：{style}
-            
-            請依序輸出：
-            1. 【信心分數】：(請只輸出一個數字，0-100)
-            2. 詳細分析報告 (Markdown format)
-            """
-            full_response = _call_gemini(prompt)
-            
-            score_match = re.search(r"(\d{1,3})", full_response[:50]) 
-            score = int(score_match.group(1)) if score_match else 50
-            analysis = re.sub(r"【信心分數】.*?\n", "", full_response)
-            
-            status.update(label="✅ 分析完成！", state="complete", expanded=False)
-            
-        st.session_state.state = {"data": data, "cards": drawn, "analysis": analysis, "news": news, "score": score, "mode": "stock"}
+if not history_df.empty:
+    # 取最近 3 筆紀錄
+    recent = history_df.head(3)
+    recent_history_text = "【使用者近期背景資料】\n"
+    for _, row in recent.iterrows():
+        recent_history_text += f"- {row['timestamp']} 問過「{row['query']}」，結果是「{row['cards']}」\n"
 
-    # === 一般占卜模式 ===
-    else:
-        if not question: st.toast("⚠️ 請輸入問題"); st.stop()
-        
-        with st.status("🔮 正在連結潛意識場域...", expanded=True) as status:
-            st.write("正在洗牌...")
-            time.sleep(1)
-            drawn = random.sample(cards, k=3)
-            
-            st.write("AI 正在感應能量...")
-            # V12 優化：更精確的 Prompt
-            prompt = f"""
-            你是一位精通榮格心理學與神秘學的資深塔羅導師。
-            使用者問了一個關於「{question}」的問題。
-            
-            你抽到了以下三張牌，請將它們對應到以下位置：
-            1. {drawn[0].name} (代表：現狀/核心問題)
-            2. {drawn[1].name} (代表：建議/行動方向)
-            3. {drawn[2].name} (代表：未來/潛在結果)
-            
-            請務必針對「{question}」這個問題進行回答，不要給出空泛的解釋。
-            用溫暖、有洞見且具體的語氣。
-            
-            請依序輸出：
-            1. 【能量分數】：(請根據牌面好壞給出 0-100 的數字)
-            2. 詳細解讀報告 (Markdown format)，包含：
-               - 🎴 牌面解析 (請連結牌義與使用者的問題)
-               - 🌌 核心訊息 (直指問題核心)
-               - 💡 具體建議 (下一步該怎麼做)
-            """
-            full_response = _call_gemini(prompt)
-            
-            score_match = re.search(r"(\d{1,3})", full_response[:50]) 
-            score = int(score_match.group(1)) if score_match else 50
-            analysis = re.sub(r"【能量分數】.*?\n", "", full_response)
-            
-            status.update(label="✨ 感應完成！", state="complete", expanded=False)
-            
-        st.session_state.state = {"data": None, "cards": drawn, "analysis": analysis, "news": [], "score": score, "mode": "general"}
+st.title(f"🔮 量子塔羅 V14 - {st.session_state.user_id} 的專屬空間")
 
-# Display Logic
-res = st.session_state.state
+tab1, tab2, tab3 = st.tabs(["🎴 塔羅占卜", "📈 股票運勢", "📜 我的歷史紀錄"])
 
-if res["cards"]:
-    
-    # === Hero Section (視覺焦點) ===
-    is_stock = res.get("mode") == "stock"
-    score_title = "AI 多空信心" if is_stock else "能量流動指數"
-    
-    # 使用 container 包裝 Hero Section
-    with st.container():
-        c_gauge, c_metrics = st.columns([0.3, 0.7])
-        
-        with c_gauge:
-            fig = plot_gauge(res["score"], res.get("mode"))
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            st.markdown(f"<div style='text-align:center; margin-top:-20px; font-weight:bold; color:#555;'>{score_title}</div>", unsafe_allow_html=True)
-            
-        with c_metrics:
-            if is_stock and res["data"]:
-                st.markdown(f"""
-                <div class="hero-container">
-                    <div class="hero-title">{symbol} 市場概況</div>
-                    <div style="display:flex; justify-content:space-around; margin-top:15px;">
-                        <div><div class="hero-metric-label">現價</div><div class="hero-metric-value">{res['data']['price']}</div></div>
-                        <div><div class="hero-metric-label">漲跌</div><div class="hero-metric-value">{res['data']['change']}</div></div>
-                        <div><div class="hero-metric-label">RSI</div><div class="hero-metric-value">{res['data']['rsi']}</div></div>
-                        <div><div class="hero-metric-label">量能</div><div class="hero-metric-value">{res['data']['vol_ratio']}</div></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                 st.markdown(f"""
-                <div class="hero-container" style="background: linear-gradient(135deg, #4a148c 0%, #7b1fa2 100%);">
-                    <div class="hero-title">🔮 潛意識能量場</div>
-                    <div style="margin-top:10px; font-size:1.1rem; opacity:0.9;">
-                        "{question[:30]}..."
-                    </div>
-                    <div style="margin-top:15px; font-size:0.9rem; opacity:0.8;">
-                        宇宙訊息已下載完成，請參考下方深度解讀。
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+# --- Tab 1: 塔羅占卜 ---
+with tab1:
+    user_query = st.text_area("心中默念你的問題...", height=100)
 
-    # === Tabs 分頁設計 (優化版面) ===
-    st.write("")
-    tab1, tab2, tab3 = st.tabs(["🎴 牌面與分析", "📰 市場資訊 / 詳情", "⚙️ 原始數據"])
-    
-    with tab1:
-        # 牌面展示
-        st.subheader("抽牌結果")
-        cols = st.columns(3)
-        for i, col in enumerate(cols):
-            with col:
-                st.markdown('<div class="tarot-img-container">', unsafe_allow_html=True)
-                st.image(res["cards"][i].path, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-                st.caption(f"**{res['cards'][i].name}**")
-        
-        # 深度報告
-        st.subheader("深度解讀")
-        st.markdown('<div class="report-card">', unsafe_allow_html=True)
-        st.markdown(res["analysis"])
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with tab2:
-        if is_stock:
-            st.subheader("相關新聞快訊")
-            if res["news"]:
-                for n in res["news"]:
-                    st.markdown(f"<div class='news-card'>{n}</div>", unsafe_allow_html=True)
-            else:
-                st.info("暫無相關新聞")
+    if st.button("開始占卜", key="btn_tarot"):
+        if not user_query:
+            st.warning("請先輸入問題！")
         else:
-            st.info("此模式無市場新聞數據。")
-            st.markdown("### 建議行動")
-            st.write("1. 靜心冥想 5 分鐘")
-            st.write("2. 記錄下此刻的直覺")
-            
-    with tab3:
-        st.subheader("Debug & Raw Data")
-        st.json(res)
+            with st.spinner("正在連結宇宙資料庫..."):
+                cards = draw_cards()
+                st.image("https://upload.wikimedia.org/wikipedia/commons/9/90/RWS_Tarot_00_Fool.jpg", 
+                         caption="示意圖", width=150) # 簡化圖片，實際可換隨機圖
+
+                cards_str = "、".join(cards)
+                st.subheader(f"🎴 你抽到了：{cards_str}")
+
+                # 建構 Prompt (加入長期記憶)
+                prompt = f"""
+                你是神秘的塔羅占卜師。
+
+                {recent_history_text}
+                (請參考以上背景，如果使用者的舊問題跟新問題有關聯，請適當連結，展現出你記得他的過去。若無關則忽略。)
+
+                現在使用者問：「{user_query}」
+                抽到的牌是：{cards_str}
+
+                請綜合解讀，給出建議。語氣要溫暖、神秘且帶有洞察力。
+                最後請給出一個「AI 摘要」，總結這次占卜的重點 (不超過30字)，用於存檔。
+                格式：
+                【深度解讀】
+                ...
+                【AI 摘要】
+                ...
+                """
+
+                model = genai.GenerativeModel('gemini-1.5-pro')
+                response = model.generate_content(prompt)
+                full_reply = response.text
+
+                # 顯示結果
+                st.markdown(full_reply)
+
+                # 嘗試提取摘要 (簡單切分)
+                try:
+                    summary = full_reply.split("【AI 摘要】")[-1].strip()
+                except:
+                    summary = "占卜完成"
+
+                # 存檔
+                if save_to_history(st.session_state.user_id, "塔羅", user_query, cards_str, summary):
+                    st.toast("✅ 紀錄已儲存至雲端！", icon="☁️")
+
+# --- Tab 2: 股票運勢 ---
+with tab2:
+    symbol = st.text_input("輸入美股/台股代號 (如 AAPL, 2330.TW)")
+
+    if st.button("分析運勢", key="btn_stock"):
+        if not symbol:
+            st.warning("請輸入代號")
+        else:
+            with st.spinner(f"正在分析 {symbol}..."):
+                stock_data = get_stock_data(symbol)
+                cards = draw_cards()
+                cards_str = "、".join(cards)
+
+                if stock_data:
+                    market_info = f"目前股價 {stock_data['price']}，近期走勢 {stock_data['trend']} ({stock_data['change']})。"
+                else:
+                    market_info = "無法取得即時股價，將進行純能量分析。"
+
+                st.info(f"抽到的牌：{cards_str}")
+
+                prompt = f"""
+                你是華爾街的量子金融占卜師。
+                {recent_history_text}
+
+                使用者詢問股票：{symbol}
+                市場數據：{market_info}
+                抽到的牌：{cards_str}
+
+                請結合「技術面」(如果有數據) 與 「玄學面」(塔羅牌義) 進行分析。
+                同樣，請在最後提供【AI 摘要】。
+                """
+
+                model = genai.GenerativeModel('gemini-1.5-pro')
+                response = model.generate_content(prompt)
+                full_reply = response.text
+
+                st.markdown(full_reply)
+
+                # 提取摘要並存檔
+                try:
+                    summary = full_reply.split("【AI 摘要】")[-1].strip()
+                except:
+                    summary = f"分析 {symbol}"
+
+                if save_to_history(st.session_state.user_id, "股票", symbol, cards_str, summary):
+                    st.toast("✅ 投資筆記已儲存！", icon="📈")
+
+# --- Tab 3: 歷史紀錄檢視 ---
+with tab3:
+    st.subheader("📜 你的靈魂旅程")
+
+    if st.button("🔄 重新整理紀錄"):
+        st.rerun()
+
+    if history_df.empty:
+        st.write("目前還沒有紀錄喔，快去問第一個問題吧！")
+    else:
+        # 顯示漂亮的表格
+        st.dataframe(
+            history_df[['timestamp', 'type', 'query', 'cards', 'ai_summary']],
+            column_config={
+                "timestamp": "時間",
+                "type": "類別",
+                "query": "問題/代號",
+                "cards": "牌面",
+                "ai_summary": "AI 重點筆記"
+            },
+            use_container_width=True,
+            hide_index=True
+        )
