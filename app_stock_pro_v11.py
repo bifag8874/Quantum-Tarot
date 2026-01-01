@@ -12,7 +12,7 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 初始設定
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="量子塔羅 V15.5 - 檔名對應修復版",
+    page_title="量子塔羅 V15.6 - 語法修復版",
     page_icon="🔮",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -71,12 +71,12 @@ def get_stock_data(symbol):
         stock = yf.Ticker(symbol)
         hist = stock.history(period="5d")
         if hist.empty: return None
-        
+
         current = hist['Close'].iloc[-1]
         prev = hist['Close'].iloc[-2] if len(hist) >= 2 else current
         change = current - prev
         pct = (change / prev) * 100
-        
+
         return {
             "symbol": symbol,
             "price": f"{current:.2f}",
@@ -90,30 +90,15 @@ def get_stock_data(symbol):
 # ---------------------------------------------------------
 # 4. 核心修復：中文牌名 -> 英文檔名 對照表
 # ---------------------------------------------------------
-# 根據使用者提供的 GitHub 檔案列表建立
 TAROT_IMG_MAP = {
-    # 大阿爾克那
-    "愚者": "00_thefool.jpg",
-    "魔術師": "01_themagician.jpg",
-    "女祭司": "02_thehighpriestess.jpg",
-    "皇后": "03_theempress.jpg",
-    "皇帝": "04_theemperor.jpg",
-    "教皇": "05_thehierophant.jpg",
-    "戀人": "06_thelovers.jpg",
-    "戰車": "07_thechariot.jpg",
-    "力量": "08_strength.jpg",
-    "隱者": "09_thehermit.jpg",
-    "命運之輪": "10_wheeloffortune.jpg",
-    "正義": "11_justice.jpg",
-    "吊人": "12_thehangedman.jpg",
-    "死神": "13_death.jpg",
-    "節制": "14_temperance.jpg",
-    "惡魔": "15_thedevil.jpg",
-    "塔": "16_thetower.jpg",
-    "星星": "17_thestar.jpg",
-    "月亮": "18_themoon.jpg",
-    "太陽": "19_thesun.jpg",
-    "審判": "20_judgement.jpg",
+    # 大阿爾克那 (00-21)
+    "愚者": "00_thefool.jpg", "魔術師": "01_themagician.jpg", "女祭司": "02_thehighpriestess.jpg",
+    "皇后": "03_theempress.jpg", "皇帝": "04_theemperor.jpg", "教皇": "05_thehierophant.jpg",
+    "戀人": "06_thelovers.jpg", "戰車": "07_thechariot.jpg", "力量": "08_strength.jpg",
+    "隱者": "09_thehermit.jpg", "命運之輪": "10_wheeloffortune.jpg", "正義": "11_justice.jpg",
+    "吊人": "12_thehangedman.jpg", "死神": "13_death.jpg", "節制": "14_temperance.jpg",
+    "惡魔": "15_thedevil.jpg", "塔": "16_thetower.jpg", "星星": "17_thestar.jpg",
+    "月亮": "18_themoon.jpg", "太陽": "19_thesun.jpg", "審判": "20_judgement.jpg",
     "世界": "21_theworld.jpg",
     # 權杖 (Wands)
     "權杖一": "wands01.jpg", "權杖二": "wands02.jpg", "權杖三": "wands03.jpg",
@@ -171,34 +156,23 @@ history_df = get_history(st.session_state.user_id)
 context = ""
 if not history_df.empty:
     for _, row in history_df.head(3).iterrows():
-        context += f"- {row['timestamp']} | {row['query']} -> {row['cards']}\\n"
+        context += f"- {row['timestamp']} | {row['query']} -> {row['cards']}\n"
 
-st.title(f"🔮 V15.5 量子塔羅 - {st.session_state.user_id}")
+st.title(f"🔮 V15.6 量子塔羅 - {st.session_state.user_id}")
 tab1, tab2, tab3 = st.tabs(["🎴 塔羅", "📈 股票", "📜 紀錄"])
 
-# --- 圖片顯示邏輯 (共用函數) ---
+# --- 圖片顯示邏輯 ---
 def show_card_images(cards):
     cols = st.columns(3)
     for i, col in enumerate(cols):
         card_name = cards[i]
-        filename = TAROT_IMG_MAP.get(card_name, "cardbacks.jpg")
-        
-        # 1. 本地路徑
-        local_path = f"Cards-jpg/{filename}"
-        
-        # 2. GitHub Raw 路徑 (你的 Repo)
+        filename = TAROT_IMG_MAP.get(card_name, "00_thefool.jpg") # 預設愚者
+
+        # GitHub Raw 路徑 (對應使用者的 Repo 結構)
         github_url = f"https://raw.githubusercontent.com/bifag8874/Quantum-Tarot/main/Cards-jpg/{filename}"
-        
+
         with col:
-            # 優先顯示 GitHub 圖 (因為 Streamlit Cloud 有時不會完整 clone 大型圖檔資料夾)
-            # 加上 onerror 處理，若網路圖掛了就試試顯示文字
-            try:
-                st.image(github_url, caption=card_name, use_container_width=True)
-            except:
-                if os.path.exists(local_path):
-                    st.image(local_path, caption=card_name, use_container_width=True)
-                else:
-                    st.info(f"🎴 {card_name}")
+            st.image(github_url, caption=card_name, use_container_width=True)
 
 # --- 塔羅 Tab ---
 with tab1:
@@ -209,18 +183,19 @@ with tab1:
             with st.spinner("連結宇宙..."):
                 cards = draw_cards()
                 cards_str = "、".join(cards)
-                
+
                 show_card_images(cards)
 
                 st.subheader(f"🎴 牌面：{cards_str}")
-                
-                prompt = f\"\"\"你是一位塔羅大師。
+
+                # 修正：移除容易造成 SyntaxError 的反斜線
+                prompt = f"""你是一位塔羅大師。
 {context}
 問題：{q}
 牌面：{cards_str}
 
 請解析牌義並給出建議。最後一行給【AI 摘要】。
-\"\"\"
+"""
                 try:
                     model = genai.GenerativeModel('models/gemini-flash-latest', generation_config=genai.GenerationConfig(temperature=temp))
                     res = model.generate_content(prompt)
@@ -237,7 +212,7 @@ with tab2:
         else:
             with st.spinner("分析中..."):
                 stock_data = get_stock_data(s)
-                
+
                 if stock_data:
                     c1, c2, c3 = st.columns(3)
                     c1.metric("現價", stock_data['price'], stock_data['change_pct'])
@@ -249,17 +224,18 @@ with tab2:
                     info_str = "無法取得數據"
 
                 cards = draw_cards()
-                
+
                 show_card_images(cards)
-                
-                prompt = f\"\"\"金融占卜師。
+
+                # 修正：移除容易造成 SyntaxError 的反斜線
+                prompt = f"""金融占卜師。
 {context}
 標的：{s}
 數據：{info_str}
 牌面：{'、'.join(cards)}
 
 請結合數據與牌義分析。最後給【AI 摘要】。
-\"\"\"
+"""
                 try:
                     model = genai.GenerativeModel('models/gemini-flash-latest', generation_config=genai.GenerationConfig(temperature=temp))
                     res = model.generate_content(prompt)
