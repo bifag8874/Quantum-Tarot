@@ -12,7 +12,7 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 初始設定
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="量子塔羅 V15.3 - 靈魂完全體",
+    page_title="量子塔羅 V15.5 - 檔名對應修復版",
     page_icon="🔮",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -37,7 +37,7 @@ if err_msg:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. 資料庫操作
+# 3. 資料庫與工具
 # ---------------------------------------------------------
 DB_TTL = 0
 
@@ -63,69 +63,86 @@ def save_to_history(user_id, q_type, query, cards, summary):
         else: updated_df = pd.concat([df, new_row], ignore_index=True)
         conn.update(data=updated_df)
         return True
-    except Exception as e:
-        st.warning(f"存檔失敗: {e}")
-        return False
-
-# ---------------------------------------------------------
-# 4. 工具函數 (整合 V11 本地圖庫 + V15.2 股市修復)
-# ---------------------------------------------------------
-
-# 完整 78 張牌名清單 (參考 V11 邏輯)
-TAROT_DECK = [
-    # 大阿爾克那
-    "愚者", "魔術師", "女祭司", "皇后", "皇帝", "教皇", "戀人", "戰車",
-    "力量", "隱者", "命運之輪", "正義", "吊人", "死神", "節制", "惡魔",
-    "塔", "星星", "月亮", "太陽", "審判", "世界",
-    # 權杖
-    "權杖一", "權杖二", "權杖三", "權杖四", "權杖五", "權杖六", "權杖七", "權杖八", "權杖九", "權杖十",
-    "權杖侍者", "權杖騎士", "權杖王后", "權杖國王",
-    # 聖杯
-    "聖杯一", "聖杯二", "聖杯三", "聖杯四", "聖杯五", "聖杯六", "聖杯七", "聖杯八", "聖杯九", "聖杯十",
-    "聖杯侍者", "聖杯騎士", "聖杯王后", "聖杯國王",
-    # 寶劍
-    "寶劍一", "寶劍二", "寶劍三", "寶劍四", "寶劍五", "寶劍六", "寶劍七", "寶劍八", "寶劍九", "寶劍十",
-    "寶劍侍者", "寶劍騎士", "寶劍王后", "寶劍國王",
-    # 錢幣
-    "錢幣一", "錢幣二", "錢幣三", "錢幣四", "錢幣五", "錢幣六", "錢幣七", "錢幣八", "錢幣九", "錢幣十",
-    "錢幣侍者", "錢幣騎士", "錢幣王后", "錢幣國王"
-]
+    except: return False
 
 def get_stock_data(symbol):
     try:
-        # 自動補全台股代號
-        if symbol.isdigit():
-            symbol = f"{symbol}.TW"
-
+        if symbol.isdigit(): symbol = f"{symbol}.TW"
         stock = yf.Ticker(symbol)
         hist = stock.history(period="5d")
-
-        if hist.empty:
-            return None 
-
-        current_price = hist['Close'].iloc[-1]
-
-        if len(hist) >= 2:
-            prev_price = hist['Close'].iloc[-2]
-            change = current_price - prev_price
-            pct_change = (change / prev_price) * 100
-        else:
-            change = 0
-            pct_change = 0
-
+        if hist.empty: return None
+        
+        current = hist['Close'].iloc[-1]
+        prev = hist['Close'].iloc[-2] if len(hist) >= 2 else current
+        change = current - prev
+        pct = (change / prev) * 100
+        
         return {
             "symbol": symbol,
-            "price": f"{current_price:.2f}",
+            "price": f"{current:.2f}",
             "change_val": f"{change:.2f}",
-            "change_pct": f"{pct_change:.2f}%",
-            "trend": "📈 上漲" if change > 0 else "📉 下跌" if change < 0 else "➖ 持平",
+            "change_pct": f"{pct:.2f}%",
+            "trend": "📈" if change > 0 else "📉" if change < 0 else "➖",
             "volume": f"{hist['Volume'].iloc[-1]:,}"
         }
-    except:
-        return None
+    except: return None
+
+# ---------------------------------------------------------
+# 4. 核心修復：中文牌名 -> 英文檔名 對照表
+# ---------------------------------------------------------
+# 根據使用者提供的 GitHub 檔案列表建立
+TAROT_IMG_MAP = {
+    # 大阿爾克那
+    "愚者": "00_thefool.jpg",
+    "魔術師": "01_themagician.jpg",
+    "女祭司": "02_thehighpriestess.jpg",
+    "皇后": "03_theempress.jpg",
+    "皇帝": "04_theemperor.jpg",
+    "教皇": "05_thehierophant.jpg",
+    "戀人": "06_thelovers.jpg",
+    "戰車": "07_thechariot.jpg",
+    "力量": "08_strength.jpg",
+    "隱者": "09_thehermit.jpg",
+    "命運之輪": "10_wheeloffortune.jpg",
+    "正義": "11_justice.jpg",
+    "吊人": "12_thehangedman.jpg",
+    "死神": "13_death.jpg",
+    "節制": "14_temperance.jpg",
+    "惡魔": "15_thedevil.jpg",
+    "塔": "16_thetower.jpg",
+    "星星": "17_thestar.jpg",
+    "月亮": "18_themoon.jpg",
+    "太陽": "19_thesun.jpg",
+    "審判": "20_judgement.jpg",
+    "世界": "21_theworld.jpg",
+    # 權杖 (Wands)
+    "權杖一": "wands01.jpg", "權杖二": "wands02.jpg", "權杖三": "wands03.jpg",
+    "權杖四": "wands04.jpg", "權杖五": "wands05.jpg", "權杖六": "wands06.jpg",
+    "權杖七": "wands07.jpg", "權杖八": "wands08.jpg", "權杖九": "wands09.jpg",
+    "權杖十": "wands10.jpg", "權杖侍者": "wands11.jpg", "權杖騎士": "wands12.jpg",
+    "權杖王后": "wands13.jpg", "權杖國王": "wands14.jpg",
+    # 聖杯 (Cups)
+    "聖杯一": "cups01.jpg", "聖杯二": "cups02.jpg", "聖杯三": "cups03.jpg",
+    "聖杯四": "cups04.jpg", "聖杯五": "cups05.jpg", "聖杯六": "cups06.jpg",
+    "聖杯七": "cups07.jpg", "聖杯八": "cups08.jpg", "聖杯九": "cups09.jpg",
+    "聖杯十": "cups10.jpg", "聖杯侍者": "cups11.jpg", "聖杯騎士": "cups12.jpg",
+    "聖杯王后": "cups13.jpg", "聖杯國王": "cups14.jpg",
+    # 寶劍 (Swords)
+    "寶劍一": "swords01.jpg", "寶劍二": "swords02.jpg", "寶劍三": "swords03.jpg",
+    "寶劍四": "swords04.jpg", "寶劍五": "swords05.jpg", "寶劍六": "swords06.jpg",
+    "寶劍七": "swords07.jpg", "寶劍八": "swords08.jpg", "寶劍九": "swords09.jpg",
+    "寶劍十": "swords10.jpg", "寶劍侍者": "swords11.jpg", "寶劍騎士": "swords12.jpg",
+    "寶劍王后": "swords13.jpg", "寶劍國王": "swords14.jpg",
+    # 錢幣 (Pentacles)
+    "錢幣一": "pentacles01.jpg", "錢幣二": "pentacles02.jpg", "錢幣三": "pentacles03.jpg",
+    "錢幣四": "pentacles04.jpg", "錢幣五": "pentacles05.jpg", "錢幣六": "pentacles06.jpg",
+    "錢幣七": "pentacles07.jpg", "錢幣八": "pentacles08.jpg", "錢幣九": "pentacles09.jpg",
+    "錢幣十": "pentacles10.jpg", "錢幣侍者": "pentacles11.jpg", "錢幣騎士": "pentacles12.jpg",
+    "錢幣王后": "pentacles13.jpg", "錢幣國王": "pentacles14.jpg"
+}
 
 def draw_cards():
-    return random.sample(TAROT_DECK, 3)
+    return random.sample(list(TAROT_IMG_MAP.keys()), 3)
 
 # ---------------------------------------------------------
 # 5. UI 設定
@@ -150,15 +167,38 @@ if not st.session_state.user_id:
     st.info("👈 請先登入")
     st.stop()
 
-# 準備記憶
 history_df = get_history(st.session_state.user_id)
 context = ""
 if not history_df.empty:
     for _, row in history_df.head(3).iterrows():
-        context += f"- {row['timestamp']} | {row['query']} -> {row['cards']}\n"
+        context += f"- {row['timestamp']} | {row['query']} -> {row['cards']}\\n"
 
-st.title(f"🔮 V15.3 量子塔羅 - {st.session_state.user_id}")
+st.title(f"🔮 V15.5 量子塔羅 - {st.session_state.user_id}")
 tab1, tab2, tab3 = st.tabs(["🎴 塔羅", "📈 股票", "📜 紀錄"])
+
+# --- 圖片顯示邏輯 (共用函數) ---
+def show_card_images(cards):
+    cols = st.columns(3)
+    for i, col in enumerate(cols):
+        card_name = cards[i]
+        filename = TAROT_IMG_MAP.get(card_name, "cardbacks.jpg")
+        
+        # 1. 本地路徑
+        local_path = f"Cards-jpg/{filename}"
+        
+        # 2. GitHub Raw 路徑 (你的 Repo)
+        github_url = f"https://raw.githubusercontent.com/bifag8874/Quantum-Tarot/main/Cards-jpg/{filename}"
+        
+        with col:
+            # 優先顯示 GitHub 圖 (因為 Streamlit Cloud 有時不會完整 clone 大型圖檔資料夾)
+            # 加上 onerror 處理，若網路圖掛了就試試顯示文字
+            try:
+                st.image(github_url, caption=card_name, use_container_width=True)
+            except:
+                if os.path.exists(local_path):
+                    st.image(local_path, caption=card_name, use_container_width=True)
+                else:
+                    st.info(f"🎴 {card_name}")
 
 # --- 塔羅 Tab ---
 with tab1:
@@ -166,102 +206,66 @@ with tab1:
     if st.button("抽牌", key="btn_t"):
         if not q: st.warning("請輸入問題")
         else:
-            with st.spinner("連結宇宙中..."):
+            with st.spinner("連結宇宙..."):
                 cards = draw_cards()
                 cards_str = "、".join(cards)
-
-                # --- 🖼️ 自動判斷圖片來源 (V15.3 核心) ---
-                cols = st.columns(3)
-                for i, col in enumerate(cols):
-                    card_name = cards[i]
-                    # 優先找本地 images/ 資料夾
-                    local_img_path = f"images/{card_name}.jpg"
-
-                    with col:
-                        if os.path.exists(local_img_path):
-                            st.image(local_img_path, caption=card_name, use_container_width=True)
-                        else:
-                            # 如果本地找不到，顯示牌名文字卡片 (Fallback)
-                            st.info(f"🎴 {card_name}")
-                # ---------------------------------------
+                
+                show_card_images(cards)
 
                 st.subheader(f"🎴 牌面：{cards_str}")
-
-                prompt = f"""你是一位塔羅大師。
+                
+                prompt = f\"\"\"你是一位塔羅大師。
 {context}
 問題：{q}
 牌面：{cards_str}
 
-請提供：
-1. 【牌面解析】
-2. 【深度建議】
-3. 【未來指引】
-最後一行請給【AI 摘要】(30字)。
-"""
+請解析牌義並給出建議。最後一行給【AI 摘要】。
+\"\"\"
                 try:
                     model = genai.GenerativeModel('models/gemini-flash-latest', generation_config=genai.GenerationConfig(temperature=temp))
                     res = model.generate_content(prompt)
                     st.markdown(res.text)
-
                     summary = res.text.split("【AI 摘要】")[-1].strip() if "【AI 摘要】" in res.text else "完成"
                     save_to_history(st.session_state.user_id, "塔羅", q, cards_str, summary)
-                    st.toast("已存檔")
                 except Exception as e: st.error(f"AI 錯誤: {e}")
 
 # --- 股票 Tab ---
 with tab2:
-    s = st.text_input("股票代號 (台股請直接輸入數字，如 2330)")
+    s = st.text_input("股票代號 (如 2330)")
     if st.button("分析", key="btn_s"):
         if not s: st.warning("請輸入代號")
         else:
             with st.spinner("分析中..."):
                 stock_data = get_stock_data(s)
-
+                
                 if stock_data:
-                    info_str = f"標的：{stock_data['symbol']}\n現價：{stock_data['price']}\n漲跌：{stock_data['change_val']} ({stock_data['change_pct']})\n趨勢：{stock_data['trend']}\n成交量：{stock_data['volume']}"
                     c1, c2, c3 = st.columns(3)
                     c1.metric("現價", stock_data['price'], stock_data['change_pct'])
                     c2.metric("漲跌", stock_data['change_val'])
                     c3.metric("趨勢", stock_data['trend'])
+                    info_str = f"數據：{stock_data}"
                 else:
-                    info_str = f"標的：{s} (無法取得即時數據，請AI進行純能量分析)"
-                    st.warning("⚠️ 查無即時股價，將進行純塔羅分析。")
+                    st.warning("⚠️ 無即時數據，進行純預測。")
+                    info_str = "無法取得數據"
 
                 cards = draw_cards()
-
-                # --- 🖼️ 圖片顯示邏輯 ---
-                cols = st.columns(3)
-                for i, col in enumerate(cols):
-                    card_name = cards[i]
-                    local_img_path = f"images/{card_name}.jpg"
-                    with col:
-                        if os.path.exists(local_img_path):
-                            st.image(local_img_path, caption=card_name, use_container_width=True)
-                        else:
-                            st.info(f"🎴 {card_name}")
-                # ---------------------
-
-                prompt = f"""金融占卜師。
+                
+                show_card_images(cards)
+                
+                prompt = f\"\"\"金融占卜師。
 {context}
+標的：{s}
+數據：{info_str}
+牌面：{'、'.join(cards)}
 
-【市場真實數據】
-{info_str}
-
-【抽牌結果】
-{'、'.join(cards)}
-
-請結合「真實市場數據」與「塔羅牌義」進行分析。
-如果數據顯示上漲，但牌面凶險，請警告風險。
-最後給【AI 摘要】。
-"""
+請結合數據與牌義分析。最後給【AI 摘要】。
+\"\"\"
                 try:
                     model = genai.GenerativeModel('models/gemini-flash-latest', generation_config=genai.GenerationConfig(temperature=temp))
                     res = model.generate_content(prompt)
                     st.markdown(res.text)
-
                     summary = res.text.split("【AI 摘要】")[-1].strip() if "【AI 摘要】" in res.text else f"分析 {s}"
                     save_to_history(st.session_state.user_id, "股票", s, str(cards), summary)
-                    st.toast("已存檔")
                 except Exception as e: st.error(f"AI 錯誤: {e}")
 
 # --- 紀錄 Tab ---
