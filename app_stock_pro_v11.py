@@ -171,7 +171,7 @@ with tab1:
 """
                 try:
                     # 使用 gemini-1.5-flash 模型 (速度快、支援廣)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
                     response = model.generate_content(prompt)
 
                     st.markdown(response.text)
@@ -218,7 +218,7 @@ with tab2:
 """
                 try:
                     # 使用 gemini-1.5-flash 模型
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
                     response = model.generate_content(prompt)
 
                     st.markdown(response.text)
