@@ -2,5 +2,4 @@ streamlit
 google-generativeai
 yfinance
 pandas
-streamlit-gsheets-connection
 st-gsheets-connection
