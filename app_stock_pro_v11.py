@@ -171,7 +171,7 @@ with tab1:
 """
                 try:
                     # ✅ 修正點：使用您帳號中確認存在的 'models/gemini-2.0-flash'
-                    model = genai.GenerativeModel('models/gemini-1.5-flash')
+                    model = genai.GenerativeModel('models/gemini-flash-latest')
                     response = model.generate_content(prompt)
 
                     st.markdown(response.text)
@@ -218,7 +218,7 @@ with tab2:
 """
                 try:
                     # ✅ 修正點：使用您帳號中確認存在的 'models/gemini-2.0-flash'
-                    model = genai.GenerativeModel('models/gemini-1.5-flash')
+                    model = genai.GenerativeModel('models/gemini-flash-latest')
                     response = model.generate_content(prompt)
 
                     st.markdown(response.text)
